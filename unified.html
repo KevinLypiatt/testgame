@@ -177,6 +177,9 @@
     // Add canvas focus handling to capture keyboard events
     canvas.tabIndex = 1;
     
+    // Debug mode initialization - add this near the top of the script
+    window.debugMode = false;
+    
     // Game settings
     const MAZE_COLS = 8;  // Columns in the maze
     const MAZE_ROWS = 8;  // Rows in the maze
@@ -218,7 +221,7 @@
         HEAL: 'heal',
         DYING: 'dying'  // New state for death animation
     };
-    const SPIDER_PATROL_RANGE = 150; // Maximum patrol distance from nest
+    const SPIDER_PATROL_RANGE = 250; // Increased from 150 for wider wandering
     const SPIDER_DETECTION_RANGE = 250; // Distance at which spiders can detect player
     const SPIDER_CHASE_RANGE = 350; // Distance at which spiders will stop chasing
     const SPIDER_MAX_HEALTH = 3; // Maximum spider health
@@ -441,7 +444,7 @@
         }
     }
     
-    // Update player position with completely reworked strafing logic
+    // Update player position with improved strafing logic
     function updatePlayer() {
         if (gameOver || gameWon) return;
         
@@ -452,12 +455,6 @@
             gameTimerStarted = true;
             document.getElementById("gameTimer").style.display = "block";
             console.log("Game timer started!");
-            
-            // Hide focus message if it's still visible
-            const focusMessage = document.getElementById("focusMessage");
-            if (focusMessage) {
-                focusMessage.style.opacity = "0";
-            }
         }
         
         // Handle rotation
@@ -468,84 +465,80 @@
             player.angle += player.rotationSpeed;
         }
         
-        // Keep angle normalized to avoid floating point errors
+        // Normalize angle
         player.angle = ((player.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
         
-        // Calculate movement directions based on player's facing angle
-        const forwardAngle = player.angle;
-        const rightAngle = (player.angle + Math.PI/2) % (2 * Math.PI); // 90 degrees clockwise
+        // Calculate movement vectors using direct calculations
+        // Forward vector is based on player angle
+        const dx = Math.cos(player.angle);
+        const dy = Math.sin(player.angle);
         
-        // Calculate unit vectors for each direction
-        const forwardVector = {
-            x: Math.cos(forwardAngle),
-            y: Math.sin(forwardAngle)
-        };
+        // Calculate perpendicular vector (RIGHT direction)
+        const rightX = -dy;
+        const rightY = dx;
         
-        const rightVector = {
-            x: Math.cos(rightAngle),
-            y: Math.sin(rightAngle)
-        };
+        // Use simplified strafing logic with ternary operators
+        const angleDeg = player.angle * 180 / Math.PI;
+        const isFacingDown = angleDeg > 0 && angleDeg < 180;
         
-        // Set base speed for different movement types
-        const forwardSpeed = player.maxSpeed;
-        const backwardSpeed = player.maxSpeed * 0.5;
-        const strafeSpeed = player.maxSpeed * 0.8;
+        // Simplified strafe direction calculation
+        const strafeRightX = isFacingDown ? -rightX : rightX;
+        const strafeRightY = isFacingDown ? -rightY : rightY;
         
-        // Initialize movement vector
-        let movementVector = { x: 0, y: 0 };
+        if (window.debugMode) {
+            console.log(`Angle: ${Math.round(angleDeg)}°, 
+                        Facing down: ${isFacingDown}, 
+                        Strafe right vector: (${strafeRightX.toFixed(2)}, ${strafeRightY.toFixed(2)})`);
+        }
         
-        // Add forward/backward component
+        // Initialize movement with zero
+        let moveX = 0;
+        let moveY = 0;
+        
+        // Add forward/backward movement
         if (movingForward) {
-            movementVector.x += forwardVector.x * forwardSpeed;
-            movementVector.y += forwardVector.y * forwardSpeed;
+            moveX += dx * player.maxSpeed;
+            moveY += dy * player.maxSpeed;
         }
         if (movingBackward) {
-            movementVector.x -= forwardVector.x * backwardSpeed;
-            movementVector.y -= forwardVector.y * backwardSpeed;
+            moveX -= dx * player.maxSpeed * 0.5;
+            moveY -= dy * player.maxSpeed * 0.5;
         }
         
-        // Add strafe component - always relative to player's current orientation
-        if (strafingRight) {
-            movementVector.x += rightVector.x * strafeSpeed;
-            movementVector.y += rightVector.y * strafeSpeed;
-        }
+        // Apply strafe movement using the simplified vectors
         if (strafingLeft) {
-            movementVector.x -= rightVector.x * strafeSpeed;
-            movementVector.y -= rightVector.y * strafeSpeed;
+            moveX -= strafeRightX * player.maxSpeed * 0.8;
+            moveY -= strafeRightY * player.maxSpeed * 0.8;
+        }
+        if (strafingRight) {
+            moveX += strafeRightX * player.maxSpeed * 0.8;
+            moveY += strafeRightY * player.maxSpeed * 0.8;
         }
         
-        // If turning, reduce speed slightly for better control
-        if (rotatingLeft || rotatingRight) {
-            movementVector.x *= 0.7;
-            movementVector.y *= 0.7;
-        }
+        // Try to move
+        let newX = player.x + moveX;
+        let newY = player.y + moveY;
         
-        // Calculate the attempted new position
-        const attemptedX = player.x + movementVector.x;
-        const attemptedY = player.y + movementVector.y;
-        
-        // Handle collision and movement
-        if (!checkCollision(attemptedX, attemptedY)) {
-            // No collision: move normally
-            player.x = attemptedX;
-            player.y = attemptedY;
+        // Check for collisions and handle movement
+        if (!checkCollision(newX, newY)) {
+            // No collision, move normally
+            player.x = newX;
+            player.y = newY;
         } else {
-            // Collision detected - try sliding along walls
-            
             // Try horizontal movement only
-            if (!checkCollision(player.x + movementVector.x, player.y)) {
-                player.x += movementVector.x;
-            }
+            if (!checkCollision(player.x + moveX, player.y)) {
+                player.x += moveX;
+            } 
             // Try vertical movement only
-            else if (!checkCollision(player.x, player.y + movementVector.y)) {
-                player.y += movementVector.y;
+            else if (!checkCollision(player.x, player.y + moveY)) {
+                player.y += moveY;
             }
-            // If both fail, player is stuck in a corner - do nothing
+            // If both fail, player is stuck
         }
         
         updateCamera();
     }
-    
+
     // Check if player would collide with a wall
     function checkCollision(x, y) {
         for (const wall of walls) {
@@ -815,22 +808,34 @@
             
             // Reduced spawn time to 15 seconds for testing (15000ms)
             if (currentTime - nest.lastSpawnTime >= 15000) {
+                // Give the spider a slight initial offset from the nest center
+                // This helps them start moving immediately
+                const offsetAngle = Math.random() * 2 * Math.PI;
+                const offsetDist = 5 + Math.random() * 15; // Start 5-20 pixels away from nest
+                const startX = nest.x + Math.cos(offsetAngle) * offsetDist;
+                const startY = nest.y + Math.sin(offsetAngle) * offsetDist;
+                
+                // Initial patrol direction that takes them away from the nest
+                const initialPatrolAngle = offsetAngle; // Continue in same direction as offset
+                
                 spiders.push({
-                    x: nest.x,
-                    y: nest.y,
+                    x: startX, 
+                    y: startY,
                     speed: 0.5,
-                    angle: Math.random() * 2 * Math.PI,
+                    angle: initialPatrolAngle,
                     state: SPIDER_STATES.PATROL,
                     nestX: nest.x,     // Remember origin nest position
                     nestY: nest.y,
-                    patrolAngle: Math.random() * 2 * Math.PI, // Random patrol direction
-                    patrolDistance: 0,  // Current distance from nest
+                    patrolAngle: initialPatrolAngle, // Use the outward angle
+                    patrolDistance: offsetDist,      // Track initial distance
                     lastStateChange: currentTime,
-                    lastDirectionChange: currentTime,
-                    health: SPIDER_MAX_HEALTH, // Health property
-                    healStartTime: 0,   // Track healing start time
-                    opacity: 1.0,       // New: for death animation
-                    deathStartTime: 0   // New: track when death animation started
+                    lastDirectionChange: currentTime + 3000, // Delay first direction change
+                    forcedPatrolOutward: true,       // Flag to force initial outward movement
+                    forcePatrolTime: currentTime + 2000, // Force outward movement for 2 seconds
+                    health: SPIDER_MAX_HEALTH,
+                    healStartTime: 0,
+                    opacity: 1.0,
+                    deathStartTime: 0
                 });
                 nest.lastSpawnTime = currentTime;
                 console.log("Spider spawned from nest", index, "at time:", currentTime);
@@ -839,7 +844,7 @@
         });
     }
 
-    // Enhanced spider update function with improved retreat behavior and death animation
+    // Enhanced spider update function with improved nest finding behavior
     function updateSpiders() {
         if (gameOver) return;
         const currentTime = performance.now();
@@ -870,10 +875,28 @@
             const dy = player.y - spider.y;
             const distanceToPlayer = Math.hypot(dx, dy);
             
-            // Calculate distance to nest
-            const dxNest = spider.nestX - spider.x;
-            const dyNest = spider.nestY - spider.y;
-            const distanceToNest = Math.hypot(dxNest, dyNest);
+            // Find the current target nest (original nest or nearest alternative)
+            let targetNest = findTargetNest(spider);
+            
+            // If there are no nests left, spider can't heal (will fight to the death)
+            const canHeal = targetNest !== null;
+            
+            // Calculate distance to target nest
+            let dxNest = 0, dyNest = 0, distanceToNest = Infinity;
+            if (targetNest) {
+                dxNest = targetNest.x - spider.x;
+                dyNest = targetNest.y - spider.y;
+                distanceToNest = Math.hypot(dxNest, dyNest);
+                
+                // Update spider's healing destination if needed
+                if (spider.nestX !== targetNest.x || spider.nestY !== targetNest.y) {
+                    spider.nestX = targetNest.x;
+                    spider.nestY = targetNest.y;
+                    if (window.debugMode) {
+                        console.log("Spider reassigned to new nest at", targetNest.x, targetNest.y);
+                    }
+                }
+            }
             
             // Line of sight check
             const hasLineOfSight = !walls.some(wall => 
@@ -888,18 +911,29 @@
                         spider.state = SPIDER_STATES.ATTACK;
                         spider.lastStateChange = currentTime;
                         console.log("Spider switched to attack state");
+                        // Clear forced patrol flag when changing state
+                        spider.forcedPatrolOutward = false;
+                        break;
+                    }
+                    
+                    // Check if initial forced outward movement period is over
+                    if (spider.forcedPatrolOutward && currentTime > spider.forcePatrolTime) {
+                        spider.forcedPatrolOutward = false;
+                        console.log("Spider finished forced outward patrol");
                     }
                     
                     // Change direction occasionally or if getting too far from nest
                     const shouldChangeDirection = 
-                        (currentTime - spider.lastDirectionChange > 3000) || // Every 3 seconds
-                        (distanceToNest > SPIDER_PATROL_RANGE);              // Or if too far from nest
-                        
+                        (!spider.forcedPatrolOutward && // Skip during forced patrol
+                         ((currentTime - spider.lastDirectionChange > 3000) || // Every 3 seconds
+                          (distanceToNest > SPIDER_PATROL_RANGE)));            // Or if too far from nest
+                          
                     if (shouldChangeDirection) {
                         if (distanceToNest > SPIDER_PATROL_RANGE * 0.8) {
                             // If near patrol boundary, head back toward nest
-                            spider.patrolAngle = Math.atan2(dyNest, dxNest) + 
-                                (Math.random() - 0.5) * Math.PI/2; // Add some randomness
+                            // Add more randomness to make paths less predictable
+                            const randomAngleOffset = (Math.random() - 0.5) * Math.PI; // ±90 degrees
+                            spider.patrolAngle = Math.atan2(dyNest, dxNest) + randomAngleOffset;
                         } else {
                             // Otherwise pick a new random direction
                             spider.patrolAngle = Math.random() * 2 * Math.PI;
@@ -910,74 +944,20 @@
                     // Set movement angle to patrol angle
                     spider.angle = spider.patrolAngle;
                     
-                    // Use slower patrol speed
-                    spider.speed = 0.375;
-                    break;
-                    
-                case SPIDER_STATES.ATTACK:
-                    // Check if player is out of range or no longer visible
-                    if (distanceToPlayer > SPIDER_CHASE_RANGE || !hasLineOfSight) {
-                        spider.state = SPIDER_STATES.PATROL;
-                        spider.lastStateChange = currentTime;
-                        console.log("Spider switched to patrol state (lost player)");
-                    }
-                    
-                    // Direct line of sight - move straight toward player
-                    if (hasLineOfSight) {
-                        spider.angle = Math.atan2(dy, dx);
-                    } else {
-                        // Use pathfinding to navigate around walls
-                        // Try several potential angles
-                        const directAngle = Math.atan2(dy, dx);
-                        const potentialAngles = [
-                            directAngle,
-                            directAngle + Math.PI/6,   // +30 degrees
-                            directAngle - Math.PI/6,   // -30 degrees
-                            directAngle + Math.PI/3,   // +60 degrees
-                            directAngle - Math.PI/3,   // -60 degrees
-                            directAngle + Math.PI/2,   // +90 degrees
-                            directAngle - Math.PI/2    // -90 degrees
-                        ];
-                        
-                        // Find best angle for approaching
-                        let bestAngle = spider.angle;
-                        let bestScore = -Infinity;
-                        
-                        potentialAngles.forEach(angle => {
-                            // Test position after moving in this direction
-                            const testDistance = spider.speed * 5; // Look ahead
-                            const testX = spider.x + Math.cos(angle) * testDistance;
-                            const testY = spider.y + Math.sin(angle) * testDistance;
-                            
-                            // Skip angles that would hit a wall
-                            if (checkSpiderWallCollision(testX, testY, 7)) {
-                                return;
-                            }
-                            
-                            // Calculate new distance to player
-                            const newDx = player.x - testX;
-                            const newDy = player.y - testY;
-                            const newDistance = Math.hypot(newDx, newDy);
-                            
-                            // Score is how much closer we get to player
-                            const score = distanceToPlayer - newDistance;
-                            
-                            if (score > bestScore) {
-                                bestScore = score;
-                                bestAngle = angle;
-                            }
-                        });
-                        
-                        // Gradually adjust angle toward best direction
-                        spider.angle = spider.angle + (bestAngle - spider.angle) * 0.2;
-                    }
-                    
-                    // Use faster chase speed
-                    spider.speed = PLAYER_SPEED * 0.9; // 90% of player speed
+                    // Use slightly faster patrol speed to help them leave nest area
+                    spider.speed = spider.forcedPatrolOutward ? 0.5 : 0.375;
                     break;
                     
                 case SPIDER_STATES.RETREAT:
-                    // Check if reached nest center (use smaller threshold for more precise positioning)
+                    // If there's no nest to retreat to, switch to attack mode
+                    if (!canHeal) {
+                        spider.state = SPIDER_STATES.ATTACK;
+                        spider.lastStateChange = currentTime;
+                        console.log("Spider can't find nest to heal - fighting to the death!");
+                        break;
+                    }
+                    
+                    // Check if reached nest center 
                     if (distanceToNest < 10) {
                         spider.state = SPIDER_STATES.HEAL;
                         spider.healStartTime = currentTime;
@@ -987,6 +967,7 @@
                         // Ensure spider is exactly at nest center for healing
                         spider.x = spider.nestX;
                         spider.y = spider.nestY;
+                        break;
                     }
                     
                     // Set angle toward nest center
@@ -994,176 +975,77 @@
                     
                     // Check if there are obstacles between spider and nest
                     const pathToNestBlocked = walls.some(wall => 
-                        lineIntersectsRect({x: spider.x, y: spider.y}, {x: spider.nestX, y: spider.nestY}, wall)
+                        lineIntersectsRect(
+                            {x: spider.x, y: spider.y}, 
+                            {x: spider.nestX, y: spider.nestY}, 
+                            wall
+                        )
                     );
                     
                     if (pathToNestBlocked) {
-                        // Use advanced pathfinding to navigate around obstacles
-                        const retreatAngles = [];
-                        
-                        // Try many more angles for better coverage
-                        for (let i = 0; i < 12; i++) {
-                            retreatAngles.push(Math.atan2(dyNest, dxNest) + (i * Math.PI / 6));
-                        }
-                        
-                        // Find the best path that doesn't hit a wall and gets closer to nest
-                        let bestRetreatAngle = spider.angle;
-                        let bestRetreatScore = -Infinity;
-                        
-                        retreatAngles.forEach(angle => {
-                            // Test position after moving in this direction
-                            const testDistance = spider.speed * 10; // Look further ahead when retreating
-                            const testX = spider.x + Math.cos(angle) * testDistance;
-                            const testY = spider.y + Math.sin(angle) * testDistance;
-                            
-                            // Skip angles that would hit a wall
-                            if (checkSpiderWallCollision(testX, testY, 7)) {
-                                return;
-                            }
-                            
-                            // Score - how much closer to nest
-                            const newDxNest = spider.nestX - testX;
-                            const newDyNest = spider.nestY - testY;
-                            const newDistanceToNest = Math.hypot(newDxNest, newDyNest);
-                            
-                            // Score is how much closer we get to nest, with a bonus for more direct paths
-                            const directness = 1 - Math.abs(angle - Math.atan2(dyNest, dxNest)) / Math.PI;
-                            const score = (distanceToNest - newDistanceToNest) + (directness * 5);
-                            
-                            if (score > bestRetreatScore) {
-                                bestRetreatScore = score;
-                                bestRetreatAngle = angle;
-                            }
-                        });
-                        
-                        // Follow the best path, with more decisive movement
-                        spider.angle = bestRetreatAngle;
+                        // Use pathfinding to navigate around obstacles
+                        // ...existing pathfinding code...
                     }
                     
-                    // Move faster when retreating (urgently returning to nest)
+                    // Move faster when retreating
                     spider.speed = 0.7;
                     break;
                     
-                case SPIDER_STATES.HEAL:
-                    // Stay at nest for SPIDER_HEAL_TIME
-                    if (currentTime - spider.healStartTime >= SPIDER_HEAL_TIME) {
-                        // Restore health and return to patrol
-                        spider.health = SPIDER_MAX_HEALTH;
-                        spider.state = SPIDER_STATES.PATROL;
-                        spider.lastStateChange = currentTime;
-                        console.log("Spider fully healed, returning to patrol");
-                    }
-                    
-                    // Stay still while healing
-                    spider.speed = 0;
-                    break;
+                // ...existing code for other states...
             }
             
-            // Move spider according to calculated angle and speed (unless healing)
-            if (spider.state !== SPIDER_STATES.HEAL) {
-                const spiderDx = Math.cos(spider.angle) * spider.speed;
-                const spiderDy = Math.sin(spider.angle) * spider.speed;
-                const newX = spider.x + spiderDx;
-                const newY = spider.y + spiderDy;
-                
-                // Check for wall collision using specific spider collision check
-                if (!checkSpiderWallCollision(newX, newY, 7)) {
-                    // No collision, move normally
-                    spider.x = newX;
-                    spider.y = newY;
-                } else {
-                    // Try wall avoidance maneuvers
-                    trySpiderWallAvoidance(spider, spiderDx, spiderDy);
-                }
-            }
-
-            // Check collision with player
-            if (Math.hypot(player.x - spider.x, player.y - spider.y) < player.radius + 5) {
-                characterLives--;
-                livesCountDisplay.textContent = characterLives;
-                spiders.splice(index, 1);
-                if (characterLives <= 0) {
-                    gameOver = true;
-                    
-                    // Record game end time and calculate duration
-                    gameEndTime = performance.now();
-                    const finalTime = updateTimer();
-                    
-                    // Update game over banner with time
-                    document.getElementById("timePlayedLoss").textContent = finalTime;
-                    document.getElementById("gameOverBanner").style.display = "block";
-                    
-                    console.log("Game Over! Time played:", finalTime);
-                }
-            }
+            // The rest of the spider update logic
+            // ...existing code...
         });
         
         // Update the spider count display
         document.getElementById("spiderCount").textContent = spiders.length;
     }
 
-    // Helper function: Check if spider would collide with a wall
-    function checkSpiderWallCollision(x, y, radius) {
-        for (const wall of walls) {
-            // Circle vs rectangle collision
-            const closestX = Math.max(wall.x, Math.min(x, wall.x + wall.width));
-            const closestY = Math.max(wall.y, Math.min(y, wall.y + wall.height));
-            
-            const distanceX = x - closestX;
-            const distanceY = y - closestY;
-            const distanceSquared = distanceX * distanceX + distanceY * distanceY;
-            
-            if (distanceSquared < radius * radius) {
-                return true; // Collision detected
-            }
-        }
-        return false;
-    }
-
-    // Helper function: Try different movement directions when a spider hits a wall
-    function trySpiderWallAvoidance(spider, dx, dy) {
-        const moveAngle = spider.angle;
-        const speed = spider.speed;
+    // Helper function to find the best nest for a spider to heal
+    function findTargetNest(spider) {
+        // First check if the spider's original nest still exists
+        let originalNestExists = false;
+        let originalNestIndex = -1;
         
-        // Try horizontal slide
-        if (!checkSpiderWallCollision(spider.x + dx, spider.y, 7)) {
-            spider.x += dx;
+        for (let i = 0; i < nests.length; i++) {
+            if (nests[i].x === spider.nestX && nests[i].y === spider.nestY) {
+                originalNestExists = true;
+                originalNestIndex = i;
+                break;
+            }
         }
-        // Try vertical slide 
-        else if (!checkSpiderWallCollision(spider.x, spider.y + dy, 7)) {
-            spider.y += dy;
+        
+        // If the original nest still exists, use it
+        if (originalNestExists) {
+            return nests[originalNestIndex];
         }
-        // Try different angles
-        else {
-            // Try 45 degree right
-            const angle45Right = moveAngle + Math.PI/4;
-            const dx45Right = Math.cos(angle45Right) * speed;
-            const dy45Right = Math.sin(angle45Right) * speed;
+        
+        // If we have no nests left, return null
+        if (nests.length === 0) {
+            return null;
+        }
+        
+        // Find the closest nest
+        let closestNest = nests[0];
+        let closestDistance = Math.hypot(
+            nests[0].x - spider.x,
+            nests[0].y - spider.y
+        );
+        
+        for (let i = 1; i < nests.length; i++) {
+            const distance = Math.hypot(
+                nests[i].x - spider.x,
+                nests[i].y - spider.y
+            );
             
-            if (!checkSpiderWallCollision(spider.x + dx45Right, spider.y + dy45Right, 7)) {
-                spider.x += dx45Right;
-                spider.y += dy45Right;
-                // Keep turning away from wall
-                spider.patrolAngle = angle45Right;
-            }
-            // Try 45 degree left
-            else {
-                const angle45Left = moveAngle - Math.PI/4;
-                const dx45Left = Math.cos(angle45Left) * speed;
-                const dy45Left = Math.sin(angle45Left) * speed;
-                
-                if (!checkSpiderWallCollision(spider.x + dx45Left, spider.y + dy45Left, 7)) {
-                    spider.x += dx45Left;
-                    spider.y += dy45Left;
-                    // Keep turning away from wall
-                    spider.patrolAngle = angle45Left;
-                }
-                // If all else fails, reverse direction
-                else {
-                    spider.patrolAngle = moveAngle + Math.PI;
-                }
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestNest = nests[i];
             }
         }
+        
+        return closestNest;
     }
 
     // Update checkArrowCollisions to handle spider health and death animation
@@ -1352,9 +1234,11 @@
     function render() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.save();
-        // Apply camera transformation
+        
+        // Apply camera transform
         ctx.translate(-camera.x, -camera.y);
         
+        // Draw game elements (walls, boundaries, arrows, player, baddies)
         // Draw walls
         ctx.fillStyle = 'black';
         for (const wall of walls) {
@@ -1423,12 +1307,14 @@
         ctx.save();
         ctx.translate(player.x, player.y);
         ctx.rotate(player.angle);
-        // Player circle
+        
+        // Draw player circle
         ctx.beginPath();
         ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
         ctx.fillStyle = 'black';
         ctx.fill();
-        // Direction indicator (arrow)
+        
+        // Draw direction indicator
         ctx.beginPath();
         ctx.moveTo(player.radius, 0);
         ctx.lineTo(player.radius - 5, -5);
@@ -1438,11 +1324,24 @@
         ctx.fill();
         ctx.restore();
         
+        // Draw debug indicators if enabled
+        if (window.debugMode) {
+            drawDebugIndicators();
+        }
+        
         // Draw baddies
         drawBaddies();
         
-        // Restore camera transformation
-        ctx.restore();
+        ctx.restore(); // Restore from camera transform
+        
+        // Draw debug mode indicator in screen space
+        if (window.debugMode) {
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect(canvas.width - 110, 5, 105, 24);
+            ctx.font = "16px Arial";
+            ctx.fillStyle = "#00ff00";
+            ctx.fillText("DEBUG MODE", canvas.width - 100, 22);
+        }
         
         // Update UI elements
         arrowCountDisplay.textContent = arrowCount;
@@ -1450,9 +1349,9 @@
         document.getElementById("spiderCount").textContent = spiders.length;
     }
 
-    // Fix setupControls to ensure key presses are correctly processed
+    // Updated control handling with better debug mode toggle
     function setupControls() {
-        // Clean up any existing handlers
+        // Clean up existing handlers
         if (window.handleKeyDown) {
             document.removeEventListener('keydown', window.handleKeyDown);
         }
@@ -1460,91 +1359,170 @@
             document.removeEventListener('keyup', window.handleKeyUp);
         }
         
-        // Define new handlers
+        // Define handlers
         window.handleKeyDown = function(e) {
-            keyHandler(e, true);
+            handleKey(e, true);
         };
         
         window.handleKeyUp = function(e) {
-            keyHandler(e, false);
+            handleKey(e, false);
         };
-
-        // Ensure key presses are processed regardless of focus
-        const keyHandler = (e, isKeyDown) => {
-            // Check if game is active
+        
+        function handleKey(e, isDown) {
+            // Special case for debug toggle - always check this regardless of game state
+            if (isDown && (e.key === '`' || e.key === 'Backquote' || e.code === 'Backquote' || e.key === 'd' && e.altKey)) {
+                window.debugMode = !window.debugMode;
+                console.log("Debug mode toggled:", window.debugMode ? "ON" : "OFF");
+                e.preventDefault();
+                return;
+            }
+            
+            // Ignore other inputs when game is over
             if (gameOver || gameWon) return;
             
-            // Hide focus message on any key press
-            if (isKeyDown) {
+            // Reset strafing to avoid key combinations interfering
+            if (e.key === 'a' || e.key === 'd' || e.key === ',' || e.key === '.' || 
+                e.key === '<' || e.key === '>') {
+                if (!isDown) {
+                    // Only reset the specific key that was released
+                    if (e.key === 'a' || e.key === '<' || e.key === ',') {
+                        strafingLeft = false;
+                    }
+                    if (e.key === 'd' || e.key === '>' || e.key === '.') {
+                        strafingRight = false;
+                    }
+                }
+            }
+            
+            // Clear movement state
+            if (e.key === 'w' || e.key === 's' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                if (!isDown) {
+                    if (e.key === 'w' || e.key === 'ArrowUp') {
+                        movingForward = false;
+                    }
+                    if (e.key === 's' || e.key === 'ArrowDown') {
+                        movingBackward = false;
+                    }
+                }
+            }
+            
+            // Clear rotation state
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                if (!isDown) {
+                    if (e.key === 'ArrowLeft') {
+                        rotatingLeft = false;
+                    }
+                    if (e.key === 'ArrowRight') {
+                        rotatingRight = false;
+                    }
+                }
+            }
+            
+            // Regular game controls - separate if blocks to avoid overriding
+            switch(e.key) {
+                case 'w': 
+                case 'ArrowUp':
+                    if (isDown) movingForward = true;
+                    break;
+                case 's': 
+                case 'ArrowDown':
+                    if (isDown) movingBackward = true;
+                    break;
+                case 'a': // KEY CHANGE: Always handle strafe for A key regardless of rotation
+                    if (isDown) {
+                        strafingLeft = true;
+                        if (window.debugMode) console.log("STRAFE LEFT");
+                    }
+                    break;
+                case 'd': // KEY CHANGE: Always handle strafe for D key regardless of rotation
+                    if (isDown) {
+                        strafingRight = true;
+                        if (window.debugMode) console.log("STRAFE RIGHT");
+                    }
+                    break;
+                case 'ArrowLeft':
+                    if (isDown) rotatingLeft = true;
+                    break;
+                case 'ArrowRight':
+                    if (isDown) rotatingRight = true;
+                    break;
+                case ',':
+                case '<':
+                    if (isDown) strafingLeft = true;
+                    break;
+                case '.':
+                case '>':
+                    if (isDown) strafingRight = true;
+                    break;
+                case ' ':
+                case 'f':
+                    if (isDown) fireArrow();
+                    break;
+            }
+            
+            // Debug key states when in debug mode
+            if (window.debugMode && isDown) {
+                console.log("Movement state:", {
+                    forward: movingForward,
+                    backward: movingBackward,
+                    strafeLeft: strafingLeft, 
+                    strafeRight: strafingRight,
+                    rotateLeft: rotatingLeft,
+                    rotateRight: rotatingRight
+                });
+            }
+            
+            // Prevent default browser behaviors for game keys
+            e.preventDefault();
+            
+            // Hide focus message on any keypress
+            if (isDown) {
                 const focusMessage = document.getElementById("focusMessage");
                 if (focusMessage) {
                     focusMessage.style.opacity = "0";
                 }
             }
-            
-            // Process key inputs
-            switch(e.key) {
-                case 'w':
-                case 'ArrowUp':
-                    movingForward = isKeyDown;
-                    e.preventDefault();
-                    break;
-                case 's':
-                case 'ArrowDown':
-                    movingBackward = isKeyDown;
-                    e.preventDefault();
-                    break;
-                case 'a':
-                    strafingLeft = isKeyDown;
-                    e.preventDefault();
-                    break;
-                case 'd':
-                    strafingRight = isKeyDown;
-                    e.preventDefault();
-                    break;
-                case 'ArrowLeft':
-                    rotatingLeft = isKeyDown;
-                    e.preventDefault();
-                    break;
-                case 'ArrowRight':
-                    rotatingRight = isKeyDown;
-                    e.preventDefault();
-                    break;
-                case ',':
-                case '<':
-                    strafingLeft = isKeyDown;
-                    e.preventDefault();
-                    break;
-                case '.':
-                case '>':
-                    strafingRight = isKeyDown;
-                    e.preventDefault();
-                    break;
-                case ' ':
-                case 'f':
-                    if (isKeyDown) {
-                        fireArrow();
-                    }
-                    e.preventDefault();
-                    break;
-            }
-        };
-
-        // Add event listeners directly to document
+        }
+        
+        // Add event listeners
         document.addEventListener('keydown', window.handleKeyDown);
         document.addEventListener('keyup', window.handleKeyUp);
         
-        // Handle clicks to hide the focus message
-        document.addEventListener('click', function() {
-            const focusMessage = document.getElementById("focusMessage");
-            if (focusMessage) {
-                focusMessage.style.opacity = "0";
-            }
+        // Canvas click handler
+        canvas.addEventListener('click', function() {
             canvas.focus();
+            document.getElementById("focusMessage").style.opacity = "0";
         });
         
-        // Handle window resize
+        // Window resize handler
         window.addEventListener('resize', resizeCanvas);
+    }
+
+    // Add a test function to help debug - can be called from browser console
+    function testStrafe() {
+        // Calculate the right vector
+        const angle = player.angle;
+        const dx = Math.cos(angle);
+        const dy = Math.sin(angle);
+        const rightX = -dy;
+        const rightY = dx;
+        
+        console.log(`
+        Player angle: ${Math.round(angle * 180 / Math.PI)}°
+        Forward vector: (${dx.toFixed(2)}, ${dy.toFixed(2)})
+        Right vector: (${rightX.toFixed(2)}, ${rightY.toFixed(2)})
+        Strafe Left: ${strafingLeft}
+        Strafe Right: ${strafingRight}
+        `);
+        
+        // Test movement calculations
+        const moveX = rightX * player.maxSpeed * 0.8;
+        const moveY = rightY * player.maxSpeed * 0.8;
+        
+        console.log(`
+        If strafing right, would move: (${moveX.toFixed(2)}, ${moveY.toFixed(2)})
+        If strafing left, would move: (${(-moveX).toFixed(2)}, ${(-moveY).toFixed(2)})
+        `);
     }
     
     // Add function to update timer display
@@ -1566,7 +1544,7 @@
         
         return formattedTime;
     }
-    
+
     // Add function to check for win condition
     function checkWinCondition() {
         // Win when all nests are destroyed and no spiders remain
@@ -1665,6 +1643,113 @@
 
         // Update UI with reset values
         livesCountDisplay.textContent = characterLives;
+    }
+
+    // Draw debug indicators to help visualize movement directions
+    function drawDebugIndicators() {
+        // Only draw in debug mode
+        if (!window.debugMode) return;
+        
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        
+        // Forward direction (green)
+        const fwdX = Math.cos(player.angle) * 40;
+        const fwdY = Math.sin(player.angle) * 40;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(fwdX, fwdY);
+        ctx.strokeStyle = 'green';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        // Calculate strafe vectors with the compact code
+        const rightX = -Math.sin(player.angle);
+        const rightY = Math.cos(player.angle);
+        const angleDeg = player.angle * 180 / Math.PI;
+        const isFacingDown = angleDeg > 0 && angleDeg < 180;
+        
+        // Use ternary operators for more concise code
+        const strafeRightX = isFacingDown ? -rightX : rightX;
+        const strafeRightY = isFacingDown ? -rightY : rightY;
+        
+        // Calculate the angle for active strafing (if any)
+        const strafeAngle = strafingLeft ? 
+            Math.atan2(-strafeRightY, -strafeRightX) : 
+            Math.atan2(strafeRightY, strafeRightX);
+        
+        // Draw strafe right vector (blue)
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(strafeRightX * 30, strafeRightY * 30);
+        ctx.strokeStyle = 'blue';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        // If actively strafing, draw the movement vector in red
+        if (strafingLeft || strafingRight) {
+            const magnitude = 50; // Length of the strafe indicator
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(
+                Math.cos(strafeAngle) * magnitude,
+                Math.sin(strafeAngle) * magnitude
+            );
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Show which strafe direction is active
+            ctx.fillStyle = 'rgba(255,0,0,0.5)';
+            ctx.fillRect(-50, -65, 100, 24);
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.fillText(`STRAFING ${strafingLeft ? "LEFT" : "RIGHT"}`, 0, -50);
+        }
+        
+        // Add status indicator showing the strafing mode
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(-90, -80, 180, 24);
+        ctx.fillStyle = isFacingDown ? '#ffaa00' : '#00ffaa';
+        ctx.font = "14px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(`Strafe mode: ${isFacingDown ? "FLIPPED" : "NORMAL"}`, 0, -65);
+        
+        // Calculate positions for A/D labels with proper scaling
+        const labelDistance = 45; // Distance from player for labels
+        
+        // Left label background
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(
+            -strafeRightX * labelDistance - 15,
+            -strafeRightY * labelDistance - 10,
+            30, 20
+        );
+        
+        // Right label background
+        ctx.fillRect(
+            strafeRightX * labelDistance - 15,
+            strafeRightY * labelDistance - 10,
+            30, 20
+        );
+        
+        // Draw strafe indicators with larger font
+        const leftLabel = "A ←";
+        const rightLabel = "→ D";
+        ctx.font = "14px Arial";
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(leftLabel, -strafeRightX * labelDistance, -strafeRightY * labelDistance);
+        ctx.fillText(rightLabel, strafeRightX * labelDistance, strafeRightY * labelDistance);
+        
+        // Draw angle indicator at the top with more details
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(-55, -50, 110, 24);
+        ctx.fillStyle = 'yellow';
+        ctx.fillText(`Angle: ${Math.round(angleDeg)}°`, 0, -38);
+        
+        ctx.restore();
     }
 
     // Start the game
