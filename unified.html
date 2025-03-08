@@ -228,6 +228,18 @@
     const SPIDER_HEAL_TIME = 3000; // Time to heal in milliseconds
     const SPIDER_DEATH_ANIMATION_TIME = 1000; // Time for death animation in milliseconds
 
+    // Add visual effects system
+    // Place this after the game state variables
+    let visualEffects = []; // Array to hold temporary visual effects
+
+    // Constants for visual effects
+    const EFFECT_TYPES = {
+        MUZZLE_FLASH: 'muzzle_flash',
+        SPIDER_HIT: 'spider_hit',
+        NEST_HIT: 'nest_hit',
+        PLAYER_DAMAGE: 'player_damage'
+    };
+
     // Initialize canvas size
     function resizeCanvas() {
         canvas.width = window.innerWidth * 0.8;
@@ -632,6 +644,22 @@
             
             // Add arrow to array
             arrows.push(newArrow);
+            
+            // Create muzzle flash effect at player's position - reduced size
+            const muzzleOffset = 12; // Was 15, reduced by 20%
+            const flashX = player.x + Math.cos(player.angle) * muzzleOffset;
+            const flashY = player.y + Math.sin(player.angle) * muzzleOffset;
+            
+            visualEffects.push({
+                type: EFFECT_TYPES.MUZZLE_FLASH,
+                x: flashX,
+                y: flashY,
+                angle: player.angle,
+                size: 5, // Was 10, reduced by 50%
+                duration: 120, // Was 150, reduced by 20%
+                startTime: performance.now(),
+                opacity: 0.8 // Was implicitly 1.0, reduced by 20%
+            });
             
             // Decrease arrow count and update display
             arrowCount--;
@@ -1179,11 +1207,23 @@
                 }
             }
             
-            // Check collision with player
+            // Check collision with player - now with damage effect
             if (Math.hypot(player.x - spider.x, player.y - spider.y) < player.radius + 7) {
+                // Add player damage effect with reduced intensity
+                visualEffects.push({
+                    type: EFFECT_TYPES.PLAYER_DAMAGE,
+                    startTime: performance.now(),
+                    duration: 400, // Was 500, reduced by 20%
+                    intensity: 0.6 // Was 1.0, reduced by 40%
+                });
+                
                 characterLives--;
                 livesCountDisplay.textContent = characterLives;
                 spiders.splice(index, 1);
+                
+                // Create smaller hit effect at player position
+                createHitEffect(EFFECT_TYPES.SPIDER_HIT, player.x, player.y, 4, 0.75); // Was 8 & 1.5, reduced by 50%
+                
                 if (characterLives <= 0) {
                     gameOver = true;
                     gameEndTime = performance.now();
@@ -1272,6 +1312,9 @@
                     
                     // Only hit the spider if no walls are in the way
                     if (!lineBlocked) {
+                        // Add hit effect - smaller size
+                        createHitEffect(EFFECT_TYPES.SPIDER_HIT, spider.x, spider.y, 3); // Was 6, reduced by 50%
+                        
                         // Reduce spider health
                         spider.health--;
                         console.log("Spider hit! Health:", spider.health);
@@ -1287,8 +1330,11 @@
                         if (spider.health <= 0) {
                             spider.state = SPIDER_STATES.DYING;
                             spider.deathStartTime = performance.now();
-                            spider.opacity = 1.0; // Start fully visible
-                            spider.speed = 0; // Stop moving
+                            spider.opacity = 1.0;
+                            spider.speed = 0;
+                            
+                            // Create smaller death effect with fewer particles
+                            createHitEffect(EFFECT_TYPES.SPIDER_HIT, spider.x, spider.y, 6, 1.0); // Was 12 & 2.0, reduced by 50%
                             console.log("Spider dying!");
                         }
                         
@@ -1307,10 +1353,18 @@
                 const distance = Math.sqrt(Math.pow(arrow.x - nest.x, 2) + Math.pow(arrow.y - nest.y, 2));
                 if (distance < 25) { // Nest radius
                     nest.hp--;
+                    
+                    // Create smaller purple nest hit effect
+                    createHitEffect(EFFECT_TYPES.NEST_HIT, nest.x, nest.y, 5); // Was 10, reduced by 50%
+                    
                     arrows.splice(i, 1);
                     arrowCount++;
                     arrowCountDisplay.textContent = arrowCount;
+                    
                     if (nest.hp <= 0) {
+                        // Create smaller destruction effect when nest is destroyed
+                        createHitEffect(EFFECT_TYPES.NEST_HIT, nest.x, nest.y, 10, 1.3); // Was 20 & 2.5, reduced by 50%
+                        
                         nests.splice(k, 1);
                         console.log("Nest destroyed!");
                         document.getElementById("nestCount").textContent = nests.length;
@@ -1546,7 +1600,22 @@
         // Draw baddies
         drawBaddies();
         
+        // Draw visual particles after all game elements but before UI
+        drawVisualEffects();
+        
         ctx.restore(); // Restore from camera transform
+        
+        // Draw screen-space effects like damage flash
+        const damageEffect = visualEffects.find(effect => effect.type === EFFECT_TYPES.PLAYER_DAMAGE);
+        if (damageEffect) {
+            const currentTime = performance.now();
+            const progress = (currentTime - damageEffect.startTime) / damageEffect.duration;
+            const intensity = (1 - progress) * 0.15; // Was 0.3, reduced by 50%
+            
+            // Draw subtler red overlay on the whole viewport
+            ctx.fillStyle = `rgba(255, 0, 0, ${intensity})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
         
         // Draw debug mode indicator in screen space
         if (window.debugMode) {
@@ -1783,6 +1852,7 @@
         updateArrows();
         spawnSpiders();
         updateSpiders();
+        updateVisualEffects(); // Add this line to update visual effects
         checkArrowCollisions();
         
         // Check win condition and update timer
@@ -2242,6 +2312,134 @@
 
     // Start the game
     init();
+
+    // Helper function to create particle hit effects
+    function createHitEffect(type, x, y, particleCount, scale = 1.0) {
+        const color = type === EFFECT_TYPES.SPIDER_HIT ? '#ff3333' : '#cc33ff'; // Red for spiders, purple for nests
+        const baseSize = type === EFFECT_TYPES.SPIDER_HIT ? 1.5 : 2; // Was 3/4, reduced by 50%
+        const baseSpeed = 0.4; // Was 0.8, reduced by 50%
+        const baseDuration = 400; // Was 500, reduced by 20%
+        
+        for (let i = 0; i < particleCount; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = (0.5 + Math.random() * 1.5) * baseSpeed * scale;
+            const size = (baseSize * 0.7 + Math.random() * baseSize * 0.6) * scale;
+            const distance = 1 + Math.random() * 4 * scale; // Was 2+8, reduced by 50%
+            
+            visualEffects.push({
+                type: type,
+                x: x + Math.cos(angle) * distance, 
+                y: y + Math.sin(angle) * distance,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                size: size,
+                color: color,
+                duration: baseDuration * (0.7 + Math.random() * 0.6),
+                startTime: performance.now(),
+                opacity: 0.9 // Was implicitly 1.0, reduced by 10%
+            });
+        }
+    }
+
+    // Update visual effects
+    function updateVisualEffects() {
+        const currentTime = performance.now();
+        
+        // Filter out completed effects
+        visualEffects = visualEffects.filter(effect => {
+            const elapsed = currentTime - effect.startTime;
+            return elapsed < effect.duration;
+        });
+        
+        // Update particle positions and properties
+        visualEffects.forEach(effect => {
+            if (effect.type === EFFECT_TYPES.SPIDER_HIT || effect.type === EFFECT_TYPES.NEST_HIT) {
+                // Move particles
+                effect.x += effect.vx;
+                effect.y += effect.vy;
+                
+                // Slow down over time
+                effect.vx *= 0.95;
+                effect.vy *= 0.95;
+                
+                // Fade out
+                const progress = (currentTime - effect.startTime) / effect.duration;
+                effect.opacity = 1 - progress;
+                
+                // Gradually reduce size
+                effect.size *= 0.99;
+            } else if (effect.type === EFFECT_TYPES.MUZZLE_FLASH) {
+                // Fade out quickly
+                const progress = (currentTime - effect.startTime) / effect.duration;
+                effect.opacity = 1 - progress;
+                effect.size = 10 * (1 - progress * 0.5); // Slightly grow then shrink
+            }
+        });
+    }
+
+    // Draw visual effects
+    function drawVisualEffects() {
+        const currentTime = performance.now();
+        
+        visualEffects.forEach(effect => {
+            ctx.save();
+            
+            if (effect.type === EFFECT_TYPES.MUZZLE_FLASH) {
+                // Draw muzzle flash as a colored circle with smaller glow
+                ctx.translate(effect.x, effect.y);
+                ctx.rotate(effect.angle);
+                
+                // Add glow effect with reduced size
+                const gradient = ctx.createRadialGradient(0, 0, 1, 0, 0, effect.size * 1.5); // Was *2, reduced by 25%
+                gradient.addColorStop(0, `rgba(255, 200, 50, ${effect.opacity})`);
+                gradient.addColorStop(0.4, `rgba(255, 120, 20, ${effect.opacity * 0.7})`); // Was 0.8, reduced opacity
+                gradient.addColorStop(1, `rgba(255, 50, 0, 0)`);
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(0, 0, effect.size * 1.5, 0, Math.PI * 2); // Was *2, reduced by 25%
+                ctx.fill();
+                
+                // Draw smaller brighter center
+                ctx.fillStyle = `rgba(255, 255, 200, ${effect.opacity})`;
+                ctx.beginPath();
+                ctx.arc(0, 0, effect.size * 0.4, 0, Math.PI * 2); // Was 0.6, reduced by 33%
+                ctx.fill();
+            }
+            else if (effect.type === EFFECT_TYPES.SPIDER_HIT || effect.type === EFFECT_TYPES.NEST_HIT) {
+                // Draw hit particles
+                ctx.globalAlpha = effect.opacity;
+                ctx.fillStyle = effect.color;
+                ctx.beginPath();
+                ctx.arc(effect.x, effect.y, effect.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            ctx.restore();
+        });
+        
+        // Draw player damage flash if active
+        const damageEffect = visualEffects.find(effect => effect.type === EFFECT_TYPES.PLAYER_DAMAGE);
+        if (damageEffect) {
+            const progress = (currentTime - damageEffect.startTime) / damageEffect.duration;
+            // Reduced intensity flash effect 
+            const intensity = (1 - progress) * damageEffect.intensity * (Math.sin(progress * Math.PI * 3) * 0.2 + 0.6); // Reduced multipliers
+            
+            // Draw more subtle red overlay on the whole screen
+            ctx.fillStyle = `rgba(255, 0, 0, ${intensity * 0.2})`; // Was 0.3, reduced by 33%
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw thinner red border around player
+            ctx.save();
+            ctx.translate(player.x - camera.x, player.y - camera.y);
+            ctx.strokeStyle = `rgba(255, 0, 0, ${intensity * 0.8})`; // Added 0.8 multiplier
+            ctx.lineWidth = 2; // Was 3, reduced by 33%
+            ctx.beginPath();
+            ctx.arc(0, 0, player.radius + 3, 0, Math.PI * 2); // Was +5, reduced by 40%
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
   </script>
 </body>
 </html>
