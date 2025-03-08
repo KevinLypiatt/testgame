@@ -240,6 +240,31 @@
         PLAYER_DAMAGE: 'player_damage'
     };
 
+    // Add these after the existing game state variables
+    let touchControls = {
+        enabled: false,
+        moveJoystick: { 
+            active: false, 
+            startX: 0, 
+            startY: 0, 
+            currentX: 0, 
+            currentY: 0,
+            moveX: 0,  // Normalized X direction (-1 to 1)
+            moveY: 0,  // Normalized Y direction (-1 to 1)
+            moveSpeed: 0 // Speed factor (0 to 1)
+        },
+        aimJoystick: { 
+            active: false, 
+            startX: 0, 
+            startY: 0, 
+            currentX: 0, 
+            currentY: 0 
+        },
+        joystickSize: 50,  // Visual radius of the joystick
+        maxDistance: 75,   // Max distance joystick can move from center
+        deadzone: 10       // Min distance to register movement
+    };
+
     // Initialize canvas size
     function resizeCanvas() {
         canvas.width = window.innerWidth * 0.8;
@@ -318,6 +343,16 @@
         
         // Hide timer initially - will show on first movement
         document.getElementById("gameTimer").style.display = "none";
+
+        // Initialize touch controls if on touch device
+        setupTouchControls();
+        
+        // Console log to help debug touch controls
+        if (touchControls.enabled) {
+            console.log("Touch controls enabled - check joystick visibility");
+            // Add a slight delay to check joystick elements
+            setTimeout(debugTouchControls, 1000);
+        }
     }
     
     // Generate maze with rooms and walls
@@ -462,7 +497,8 @@
         
         // Start timer on first movement
         if (!gameTimerStarted && (movingForward || movingBackward || rotatingLeft || 
-            rotatingRight || strafingLeft || strafingRight)) {
+            rotatingRight || strafingLeft || strafingRight || 
+            touchControls.moveJoystick.moveSpeed > 0)) { // Check touch movement
             gameStartTime = performance.now();
             gameTimerStarted = true;
             document.getElementById("gameTimer").style.display = "block";
@@ -480,8 +516,11 @@
         // Normalize angle
         player.angle = ((player.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
         
-        // Calculate movement vectors using direct calculations
-        // Forward vector is based on player angle
+        // Process touch movement (always check, regardless of joystick active state)
+        applyTouchMovement();
+        
+        // Process keyboard movement
+        // Calculate movement vectors for keyboard controls
         const dx = Math.cos(player.angle);
         const dy = Math.sin(player.angle);
         
@@ -496,12 +535,6 @@
         // Simplified strafe direction calculation
         const strafeRightX = isFacingDown ? -rightX : rightX;
         const strafeRightY = isFacingDown ? -rightY : rightY;
-        
-        if (window.debugMode) {
-            console.log(`Angle: ${Math.round(angleDeg)}°, 
-                        Facing down: ${isFacingDown}, 
-                        Strafe right vector: (${strafeRightX.toFixed(2)}, ${strafeRightY.toFixed(2)})`);
-        }
         
         // Initialize movement with zero
         let moveX = 0;
@@ -527,25 +560,27 @@
             moveY += strafeRightY * player.maxSpeed * 0.8;
         }
         
-        // Try to move
-        let newX = player.x + moveX;
-        let newY = player.y + moveY;
-        
-        // Check for collisions and handle movement
-        if (!checkCollision(newX, newY)) {
-            // No collision, move normally
-            player.x = newX;
-            player.y = newY;
-        } else {
-            // Try horizontal movement only
-            if (!checkCollision(player.x + moveX, player.y)) {
-                player.x += moveX;
-            } 
-            // Try vertical movement only
-            else if (!checkCollision(player.x, player.y + moveY)) {
-                player.y += moveY;
+        // Apply keyboard movement if any keys are pressed
+        if (movingForward || movingBackward || strafingLeft || strafingRight) {
+            // Try to move
+            let newX = player.x + moveX;
+            let newY = player.y + moveY;
+            
+            // Check for collisions and handle movement
+            if (!checkCollision(newX, newY)) {
+                // No collision, move normally
+                player.x = newX;
+                player.y = newY;
+            } else {
+                // Try horizontal movement only
+                if (!checkCollision(player.x + moveX, player.y)) {
+                    player.x += moveX;
+                } 
+                // Try vertical movement only
+                else if (!checkCollision(player.x, player.y + moveY)) {
+                    player.y += moveY;
+                }
             }
-            // If both fail, player is stuck
         }
         
         updateCamera();
@@ -1222,7 +1257,7 @@
                 spiders.splice(index, 1);
                 
                 // Create smaller hit effect at player position
-                createHitEffect(EFFECT_TYPES.SPIDER_HIT, player.x, player.y, 4, 0.75); // Was 8 & 1.5, reduced by 50%
+                createHitEffect(EFFECT_TYPES.SPIDER_HIT, player.x, player.y, 8, 0.75); // Back to 8 (original value)
                 
                 if (characterLives <= 0) {
                     gameOver = true;
@@ -1312,8 +1347,8 @@
                     
                     // Only hit the spider if no walls are in the way
                     if (!lineBlocked) {
-                        // Add hit effect - smaller size
-                        createHitEffect(EFFECT_TYPES.SPIDER_HIT, spider.x, spider.y, 3); // Was 6, reduced by 50%
+                        // Add hit effect - restored to original count but keep smaller size
+                        createHitEffect(EFFECT_TYPES.SPIDER_HIT, spider.x, spider.y, 6); // Back to 6 (original value)
                         
                         // Reduce spider health
                         spider.health--;
@@ -1333,8 +1368,8 @@
                             spider.opacity = 1.0;
                             spider.speed = 0;
                             
-                            // Create smaller death effect with fewer particles
-                            createHitEffect(EFFECT_TYPES.SPIDER_HIT, spider.x, spider.y, 6, 1.0); // Was 12 & 2.0, reduced by 50%
+                            // Create death effect with original particle count but smaller size
+                            createHitEffect(EFFECT_TYPES.SPIDER_HIT, spider.x, spider.y, 12, 1.0); // Back to 12 (original value)
                             console.log("Spider dying!");
                         }
                         
@@ -1354,16 +1389,16 @@
                 if (distance < 25) { // Nest radius
                     nest.hp--;
                     
-                    // Create smaller purple nest hit effect
-                    createHitEffect(EFFECT_TYPES.NEST_HIT, nest.x, nest.y, 5); // Was 10, reduced by 50%
+                    // Create nest hit effect with original count but smaller particles
+                    createHitEffect(EFFECT_TYPES.NEST_HIT, nest.x, nest.y, 10); // Back to 10 (original value)
                     
                     arrows.splice(i, 1);
                     arrowCount++;
                     arrowCountDisplay.textContent = arrowCount;
                     
                     if (nest.hp <= 0) {
-                        // Create smaller destruction effect when nest is destroyed
-                        createHitEffect(EFFECT_TYPES.NEST_HIT, nest.x, nest.y, 10, 1.3); // Was 20 & 2.5, reduced by 50%
+                        // Create destruction effect with original count but smaller size
+                        createHitEffect(EFFECT_TYPES.NEST_HIT, nest.x, nest.y, 20, 1.3); // Back to 20 (original value)
                         
                         nests.splice(k, 1);
                         console.log("Nest destroyed!");
@@ -2034,6 +2069,67 @@
         ctx.fillText(`Angle: ${Math.round(angleDeg)}°`, 0, -38);
         
         ctx.restore();
+        
+        // Draw touch control debug info if active
+        if (touchControls.moveJoystick.active) {
+            const dx = touchControls.moveJoystick.currentX - touchControls.moveJoystick.startX;
+            const dy = touchControls.moveJoystick.currentY - touchControls.moveJoystick.startY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const normalizedX = dx / Math.max(distance, 0.001);
+            const normalizedY = dy / Math.max(distance, 0.001);
+            
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            
+            // Draw touch movement vector (purple)
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(normalizedX * 50, normalizedY * 50);
+            ctx.strokeStyle = 'purple';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // Label it
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(-70, 40, 140, 24);
+            ctx.fillStyle = '#ff88ff';
+            ctx.font = "14px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText(`Touch Move: (${normalizedX.toFixed(1)}, ${normalizedY.toFixed(1)})`, 0, 55);
+            
+            ctx.restore();
+        }
+        
+        // Draw touch control movement vector if active
+        if (touchControls.moveJoystick.moveSpeed > 0) {
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            
+            // Draw touch movement vector (purple)
+            const moveLen = touchControls.moveJoystick.moveSpeed * 60;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(
+                touchControls.moveJoystick.moveX * moveLen,
+                touchControls.moveJoystick.moveY * moveLen
+            );
+            ctx.strokeStyle = 'purple';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // Label it
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(-85, 40, 170, 24);
+            ctx.fillStyle = '#ff88ff';
+            ctx.font = "14px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText(
+                `Touch: (${touchControls.moveJoystick.moveX.toFixed(1)}, ${touchControls.moveJoystick.moveY.toFixed(1)}) × ${touchControls.moveJoystick.moveSpeed.toFixed(1)}`, 
+                0, 55
+            );
+            
+            ctx.restore();
+        }
     }
 
     // Helper function: Try different movement directions when a spider hits a wall
@@ -2438,6 +2534,361 @@
             ctx.arc(0, 0, player.radius + 3, 0, Math.PI * 2); // Was +5, reduced by 40%
             ctx.stroke();
             ctx.restore();
+        }
+    }
+
+    // Add this new function to set up touch controls
+    function setupTouchControls() {
+        // Check if device supports touch events
+        touchControls.enabled = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        
+        if (!touchControls.enabled) return;
+        
+        console.log("Touch controls enabled");
+        
+        // Create touch overlay if it doesn't exist
+        let touchOverlay = document.getElementById('touchControls');
+        if (!touchOverlay) {
+            touchOverlay = document.createElement('div');
+            touchOverlay.id = 'touchControls';
+            touchOverlay.style.position = 'absolute';
+            touchOverlay.style.top = '0';
+            touchOverlay.style.left = '0';
+            touchOverlay.style.width = '100%';
+            touchOverlay.style.height = '100%';
+            touchOverlay.style.pointerEvents = 'none'; // Don't block canvas events
+            document.querySelector('.game-container').appendChild(touchOverlay);
+            
+            // Create joystick indicators
+            const moveIndicator = document.createElement('div');
+            moveIndicator.id = 'moveJoystick';
+            moveIndicator.className = 'joystick';
+            moveIndicator.innerHTML = '<div class="joystick-base"></div><div class="joystick-thumb"></div>';
+            moveIndicator.style.display = 'none';
+            touchOverlay.appendChild(moveIndicator);
+            
+            const aimIndicator = document.createElement('div');
+            aimIndicator.id = 'aimJoystick';
+            aimIndicator.className = 'joystick';
+            aimIndicator.innerHTML = '<div class="joystick-base"></div><div class="joystick-thumb"></div>';
+            aimIndicator.style.display = 'none';
+            touchOverlay.appendChild(aimIndicator);
+        }
+        
+        // Add necessary CSS for touch controls with fixed styles to ensure visibility
+        addTouchControlStyles();
+        
+        // Add touch event listeners directly to the canvas
+        canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+        canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+        canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+        canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+        
+        // Update focus message for touch devices
+        document.getElementById("focusMessage").innerHTML = 
+            "Tap to play<br>Left side: Move, Right side: Aim & Shoot";
+    }
+
+    // Modified CSS implementation to ensure joysticks are visible
+    function addTouchControlStyles() {
+        let style = document.getElementById('touchControlStyles');
+        if (!style) {
+            style = document.createElement('style');
+            style.id = 'touchControlStyles';
+            style.textContent = `
+                .joystick {
+                    position: absolute;
+                    pointer-events: none;
+                    z-index: 1000;
+                }
+                .joystick-base {
+                    width: ${touchControls.joystickSize * 2}px;
+                    height: ${touchControls.joystickSize * 2}px;
+                    border-radius: 50%;
+                    background: rgba(255, 255, 255, 0.3);
+                    border: 3px solid rgba(255, 255, 255, 0.7);
+                    position: absolute;
+                    transform: translate(-50%, -50%);
+                    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+                }
+                .joystick-thumb {
+                    width: ${touchControls.joystickSize}px;
+                    height: ${touchControls.joystickSize}px;
+                    border-radius: 50%;
+                    background: rgba(255, 255, 255, 0.8);
+                    border: 2px solid rgba(0, 0, 0, 0.3);
+                    position: absolute;
+                    transform: translate(-50%, -50%);
+                    box-shadow: 0 0 5px rgba(0,0,0,0.3);
+                }
+                @media (max-width: 768px) {
+                    .info {
+                        font-size: 14px;
+                        padding: 5px;
+                        background: rgba(255, 255, 255, 0.7);
+                        border-radius: 5px;
+                    }
+                    .timer {
+                        font-size: 14px;
+                    }
+                    #focusMessage {
+                        font-size: 18px;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+    }
+
+    // Modified touch start to fire arrows for both joysticks
+    function handleTouchStart(e) {
+        e.preventDefault(); // Prevent scrolling
+        
+        // Hide focus message
+        document.getElementById("focusMessage").style.opacity = "0";
+        
+        // Start timer if this is first interaction
+        if (!gameTimerStarted) {
+            gameStartTime = performance.now();
+            gameTimerStarted = true;
+            document.getElementById("gameTimer").style.display = "block";
+        }
+        
+        // Determine which side of screen was touched
+        const touches = e.changedTouches;
+        const canvasRect = canvas.getBoundingClientRect();
+        const canvasMidX = canvasRect.width / 2;
+        
+        for (let i = 0; i < touches.length; i++) {
+            const touch = touches[i];
+            const touchX = touch.clientX - canvasRect.left;
+            const touchY = touch.clientY - canvasRect.top;
+            
+            // Left half of screen - movement joystick
+            if (touchX < canvasMidX && !touchControls.moveJoystick.active) {
+                touchControls.moveJoystick.active = true;
+                touchControls.moveJoystick.identifier = touch.identifier;
+                touchControls.moveJoystick.startX = touchX;
+                touchControls.moveJoystick.startY = touchY;
+                touchControls.moveJoystick.currentX = touchX;
+                touchControls.moveJoystick.currentY = touchY;
+                
+                // Show move joystick - ensure it's visible by adding correct CSS positioning
+                const joystick = document.getElementById('moveJoystick');
+                joystick.style.display = 'block';
+                joystick.style.left = touchX + 'px';
+                joystick.style.top = touchY + 'px';
+                
+                const thumb = joystick.querySelector('.joystick-thumb');
+                thumb.style.left = '0px';
+                thumb.style.top = '0px';
+                
+                // Fire arrow on left joystick activation too
+                fireArrow();
+            }
+            // Right half - aim/fire joystick
+            else if (touchX >= canvasMidX && !touchControls.aimJoystick.active) {
+                touchControls.aimJoystick.active = true;
+                touchControls.aimJoystick.identifier = touch.identifier;
+                touchControls.aimJoystick.startX = touchX;
+                touchControls.aimJoystick.startY = touchY;
+                touchControls.aimJoystick.currentX = touchX;
+                touchControls.aimJoystick.currentY = touchY;
+                
+                // Show aim joystick - ensure it's visible by adding correct CSS positioning
+                const joystick = document.getElementById('aimJoystick');
+                joystick.style.display = 'block';
+                joystick.style.left = touchX + 'px';
+                joystick.style.top = touchY + 'px';
+                
+                const thumb = joystick.querySelector('.joystick-thumb');
+                thumb.style.left = '0px';
+                thumb.style.top = '0px';
+                
+                // Fire arrow when aim joystick is first touched
+                fireArrow();
+            }
+        }
+    }
+
+    // Modified to fix joystick thumb positioning
+    function handleTouchMove(e) {
+        e.preventDefault(); // Prevent scrolling
+        
+        const touches = e.changedTouches;
+        const canvasRect = canvas.getBoundingClientRect();
+        
+        for (let i = 0; i < touches.length; i++) {
+            const touch = touches[i];
+            const touchX = touch.clientX - canvasRect.left;
+            const touchY = touch.clientY - canvasRect.top;
+            
+            // Update move joystick
+            if (touchControls.moveJoystick.active && touch.identifier === touchControls.moveJoystick.identifier) {
+                touchControls.moveJoystick.currentX = touchX;
+                touchControls.moveJoystick.currentY = touchY;
+                
+                // Calculate joystick displacement
+                let dx = touchX - touchControls.moveJoystick.startX;
+                let dy = touchY - touchControls.moveJoystick.startY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // Limit to max distance
+                if (distance > touchControls.maxDistance) {
+                    dx = dx * touchControls.maxDistance / distance;
+                    dy = dy * touchControls.maxDistance / distance;
+                }
+                
+                // Update joystick thumb position using absolute positioning
+                const thumb = document.getElementById('moveJoystick').querySelector('.joystick-thumb');
+                thumb.style.left = (dx) + 'px';
+                thumb.style.top = (dy) + 'px';
+                
+                // Update player movement based on joystick position
+                updatePlayerFromMoveJoystick(dx, dy, distance);
+            }
+            
+            // Update aim joystick
+            if (touchControls.aimJoystick.active && touch.identifier === touchControls.aimJoystick.identifier) {
+                touchControls.aimJoystick.currentX = touchX;
+                touchControls.aimJoystick.currentY = touchY;
+                
+                // Calculate joystick displacement
+                let dx = touchX - touchControls.aimJoystick.startX;
+                let dy = touchY - touchControls.aimJoystick.startY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // Limit to max distance
+                if (distance > touchControls.maxDistance) {
+                    dx = dx * touchControls.maxDistance / distance;
+                    dy = dy * touchControls.maxDistance / distance;
+                }
+                
+                // Update joystick thumb position using absolute positioning
+                const thumb = document.getElementById('aimJoystick').querySelector('.joystick-thumb');
+                thumb.style.left = (dx) + 'px';
+                thumb.style.top = (dy) + 'px';
+                
+                // Update player aim based on joystick position
+                updatePlayerAimFromJoystick(dx, dy, distance);
+            }
+        }
+    }
+
+    // Handle touch end event
+    function handleTouchEnd(e) {
+        e.preventDefault();
+        
+        const touches = e.changedTouches;
+        
+        for (let i = 0; i < touches.length; i++) {
+            const touch = touches[i];
+            
+            // Check if this is the move joystick touch
+            if (touchControls.moveJoystick.active && touch.identifier === touchControls.moveJoystick.identifier) {
+                touchControls.moveJoystick.active = false;
+                
+                // Reset movement parameters to stop movement when touch ends
+                touchControls.moveJoystick.moveX = 0;
+                touchControls.moveJoystick.moveY = 0;
+                touchControls.moveJoystick.moveSpeed = 0;
+                
+                // Hide move joystick
+                document.getElementById('moveJoystick').style.display = 'none';
+            }
+            
+            // Check if this is the aim joystick touch
+            if (touchControls.aimJoystick.active && touch.identifier === touchControls.aimJoystick.identifier) {
+                touchControls.aimJoystick.active = false;
+                
+                // Hide aim joystick
+                document.getElementById('aimJoystick').style.display = 'none';
+            }
+        }
+    }
+
+    // Update player movement based on move joystick - screen-space movement instead of relative
+    function updatePlayerFromMoveJoystick(dx, dy, distance) {
+        // Only update movement values if outside deadzone
+        if (distance > touchControls.deadzone) {
+            // Calculate normalized direction vector
+            touchControls.moveJoystick.moveX = dx / distance;
+            touchControls.moveJoystick.moveY = dy / distance;
+            
+            // Calculate speed factor (0 to 1) based on how far joystick is pushed
+            touchControls.moveJoystick.moveSpeed = Math.min(distance / touchControls.maxDistance, 1.0);
+            
+            // Log movement parameters if in debug mode
+            if (window.debugMode) {
+                console.log(`Touch joystick: Direction (${touchControls.moveJoystick.moveX.toFixed(2)}, ${touchControls.moveJoystick.moveY.toFixed(2)}), Speed: ${touchControls.moveJoystick.moveSpeed.toFixed(2)}`);
+            }
+        } else {
+            // If in deadzone, no movement
+            touchControls.moveJoystick.moveX = 0;
+            touchControls.moveJoystick.moveY = 0;
+            touchControls.moveJoystick.moveSpeed = 0;
+        }
+    }
+
+    // Update player aim based on aim joystick
+    function updatePlayerAimFromJoystick(dx, dy, distance) {
+        // Set aiming direction only if outside deadzone
+        if (distance > touchControls.deadzone) {
+            // Calculate angle from joystick (in screen coordinates)
+            const angle = Math.atan2(dy, dx);
+            
+            // Update player's angle directly
+            player.angle = angle;
+        }
+    }
+
+    // Add a debug function to check if touch controls are working
+    function debugTouchControls() {
+        console.log("Touch Controls Debug:");
+        console.log("Enabled:", touchControls.enabled);
+        
+        const moveJoystick = document.getElementById('moveJoystick');
+        const aimJoystick = document.getElementById('aimJoystick');
+        
+        console.log("Move Joystick:", moveJoystick ? 
+            `Display: ${moveJoystick.style.display}, Position: ${moveJoystick.style.left}, ${moveJoystick.style.top}` : 
+            "Not found");
+        
+        console.log("Aim Joystick:", aimJoystick ? 
+            `Display: ${aimJoystick.style.display}, Position: ${aimJoystick.style.left}, ${aimJoystick.style.top}` : 
+            "Not found");
+            
+        console.log("Touch Controls State:", {
+            moveActive: touchControls.moveJoystick.active,
+            aimActive: touchControls.aimJoystick.active
+        });
+    }
+
+    // Add a new function to apply touch movement in the update loop
+    function applyTouchMovement() {
+        if (touchControls.moveJoystick.moveSpeed > 0) {
+            // Calculate actual movement speed based on joystick position
+            const moveSpeed = player.maxSpeed * touchControls.moveJoystick.moveSpeed;
+            
+            // Calculate new position
+            let newX = player.x + touchControls.moveJoystick.moveX * moveSpeed;
+            let newY = player.y + touchControls.moveJoystick.moveY * moveSpeed;
+            
+            // Check for collisions and handle movement
+            if (!checkCollision(newX, newY)) {
+                // No collision, move normally
+                player.x = newX;
+                player.y = newY;
+            } else {
+                // Try horizontal movement only
+                if (!checkCollision(player.x + touchControls.moveJoystick.moveX * moveSpeed, player.y)) {
+                    player.x += touchControls.moveJoystick.moveX * moveSpeed;
+                } 
+                // Try vertical movement only
+                else if (!checkCollision(player.x, player.y + touchControls.moveJoystick.moveY * moveSpeed)) {
+                    player.y += touchControls.moveJoystick.moveY * moveSpeed;
+                }
+            }
         }
     }
   </script>
