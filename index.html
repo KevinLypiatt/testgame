@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maze Game</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #333;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 2px solid #888;
+            margin: 20px;
+        }
+        .instructions {
+            margin-top: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Maze Game</h1>
+    <canvas id="gameCanvas" tabindex="1"></canvas>
+    <div class="instructions">
+        <p>Use arrow keys to move, press 'f' to shoot arrows</p>
+        <p><strong>Click on the game area first to enable controls</strong></p>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
