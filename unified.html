@@ -1157,10 +1157,11 @@
                     }
                     
                     // Set movement angle to patrol angle
+                    
                     spider.angle = spider.patrolAngle;
                     
-                    // Use improved patrol speeds
-                    spider.speed = spider.forcedPatrolOutward ? 1.0 : 0.6; // Increased from 0.7/0.375
+                    // Use improved patrol speeds with 25% boost
+                    spider.speed = spider.forcedPatrolOutward ? 1.25 : 0.75; // +25% from 1.0/0.6
                     break;
                     
                 case SPIDER_STATES.ATTACK:
@@ -1175,8 +1176,8 @@
                     // Direct line of sight - move straight toward player
                     spider.angle = Math.atan2(dy, dx);
                     
-                    // Use faster speed when chasing
-                    spider.speed = 0.9; // Increased from 0.6
+                    // Use faster speed when chasing with 30% boost
+                    spider.speed = 1.17; // +30% from 0.9
                     break;
                     
                 case SPIDER_STATES.RETREAT:
@@ -1201,11 +1202,11 @@
                         break;
                     }
                     
-                    // Set angle toward nest center
-                    spider.angle = Math.atan2(dyNest, dxNest);
+                    // Set angle toward nest center - use smart pathfinding now
+                    spider.angle = getPathToNest(spider, targetNest);
                     
-                    // Move faster when retreating
-                    spider.speed = 1.0; // Increased from 0.7
+                    // Move faster when retreating with 25% boost
+                    spider.speed = 1.25; // +25% from 1.0
                     break;
                     
                 case SPIDER_STATES.HEAL:
@@ -1527,6 +1528,34 @@
                           Math.sin(spider.angle) * (spiderRadius + 5));
                 ctx.strokeStyle = 'white';
                 ctx.stroke();
+            }
+            
+            // In debug mode, draw path to nest for retreating spiders
+            if (window.debugMode && spider.state === SPIDER_STATES.RETREAT) {
+                const targetNest = findTargetNest(spider);
+                if (targetNest) {
+                    const pathAngle = getPathToNest(spider, targetNest);
+                    const pathLength = 40;
+                    
+                    // Draw the calculated path
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(Math.cos(pathAngle) * pathLength, Math.sin(pathAngle) * pathLength);
+                    ctx.strokeStyle = 'lime';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    
+                    // Draw direct path to nest for comparison
+                    const directAngle = Math.atan2(targetNest.y - spider.y, targetNest.x - spider.x);
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(Math.cos(directAngle) * pathLength * 0.7, Math.sin(directAngle) * pathLength * 0.7);
+                    ctx.strokeStyle = 'yellow';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([2, 2]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
             }
             
             ctx.restore();
@@ -2890,6 +2919,77 @@
                 }
             }
         }
+    }
+
+    // Add this new pathfinding function to help spiders smartly navigate to nests
+    function getPathToNest(spider, targetNest) {
+        // Calculate direct path to nest
+        const dxNest = targetNest.x - spider.x;
+        const dyNest = targetNest.y - spider.y;
+        const directAngle = Math.atan2(dyNest, dxNest);
+        
+        // First check if direct path is clear
+        const distanceToNest = Math.hypot(dxNest, dyNest);
+        const stepSize = Math.min(10, distanceToNest / 2); // Check at least a few steps ahead
+        const testX = spider.x + Math.cos(directAngle) * stepSize;
+        const testY = spider.y + Math.sin(directAngle) * stepSize;
+        
+        if (!checkSpiderWallCollision(testX, testY, 7)) {
+            return directAngle; // Direct path is clear, use it
+        }
+        
+        // If direct path blocked, try several angles to find a clear path
+        const testAngles = [
+            // Check angles on either side of direct path
+            directAngle - Math.PI / 8,
+            directAngle + Math.PI / 8,
+            directAngle - Math.PI / 4,
+            directAngle + Math.PI / 4,
+            directAngle - Math.PI / 3,
+            directAngle + Math.PI / 3
+        ];
+        
+        for (const angle of testAngles) {
+            const testX = spider.x + Math.cos(angle) * stepSize;
+            const testY = spider.y + Math.sin(angle) * stepSize;
+            
+            if (!checkSpiderWallCollision(testX, testY, 7)) {
+                return angle; // Found a clear angle, use it for movement
+            }
+        }
+        
+        // If all test angles failed, try 8 compass directions to find open space
+        const compassAngles = [];
+        for (let i = 0; i < 8; i++) {
+            compassAngles.push(i * Math.PI / 4);
+        }
+        
+        // Sort compass angles by how close they are to the direct angle
+        compassAngles.sort((a, b) => {
+            const diffA = Math.abs(normalizeAngle(a - directAngle));
+            const diffB = Math.abs(normalizeAngle(b - directAngle));
+            return diffA - diffB;
+        });
+        
+        // Try each compass angle in order of proximity to direct angle
+        for (const angle of compassAngles) {
+            const testX = spider.x + Math.cos(angle) * stepSize;
+            const testY = spider.y + Math.sin(angle) * stepSize;
+            
+            if (!checkSpiderWallCollision(testX, testY, 7)) {
+                return angle; // Found a clear angle, use it for movement
+            }
+        }
+        
+        // If all else fails, return the direct angle and let collision handling take over
+        return directAngle;
+    }
+
+    // Helper function to normalize an angle to [-π, π]
+    function normalizeAngle(angle) {
+        while (angle > Math.PI) angle -= 2 * Math.PI;
+        while (angle < -Math.PI) angle += 2 * Math.PI;
+        return angle;
     }
   </script>
 </body>
